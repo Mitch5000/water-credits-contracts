@@ -104,6 +104,7 @@ pub struct Governance;
 
 #[contractimpl]
 impl Governance {
+    /// Initialize the governance contract with an admin and initial member list. Callable once.
     pub fn initialize(e: Env, admin: Address, initial_members: Vec<Address>) {
         if has_admin(&e) {
             panic!("already initialized");
@@ -138,14 +139,18 @@ impl Governance {
         e.storage().instance().set(&DataKey::MemberCount, &count);
     }
 
+    /// Get the current governance configuration (fee, voting period, thresholds).
     pub fn get_config(e: Env) -> GovernanceConfig {
         read_config(&e)
     }
 
+    /// Get a proposal by ID. Returns None if not found.
     pub fn get_proposal(e: Env, proposal_id: u64) -> Option<Proposal> {
         e.storage().instance().get(&DataKey::Proposal(proposal_id))
     }
 
+    /// Create a new proposal. Only governance members can propose.
+    /// Returns the auto-incremented proposal ID.
     pub fn propose(
         e: Env,
         proposer: Address,
@@ -207,6 +212,8 @@ impl Governance {
         proposal_id
     }
 
+    /// Vote on a proposal. Members can vote once. Auto-activates pending proposals.
+    /// Auto-approves or rejects when all members have voted.
     pub fn vote(e: Env, voter: Address, proposal_id: u64, approve: bool) {
         voter.require_auth();
 
@@ -269,7 +276,9 @@ impl Governance {
 
         if total_votes >= total_members {
             let yes_pct = if total_votes > 0 {
-                (proposal.votes_for.len() as u32) * 10000 / total_votes
+                (proposal.votes_for.len() as u64 * 10000)
+                    .checked_div(total_votes as u64)
+                    .unwrap_or(0) as u32
             } else {
                 0
             };
@@ -288,6 +297,7 @@ impl Governance {
         }
     }
 
+    /// Execute an approved proposal after the timelock has elapsed. Members only.
     pub fn execute(e: Env, caller: Address, proposal_id: u64) {
         caller.require_auth();
 
@@ -332,6 +342,7 @@ impl Governance {
             .publish((EVENT_PROPOSAL_EXECUTED,), (proposal_id,));
     }
 
+    /// Update the governance configuration parameters. Admin only.
     pub fn update_config(e: Env, admin: Address, config: GovernanceConfig) {
         admin.require_auth();
         let stored: Address = read_admin(&e);
@@ -341,6 +352,7 @@ impl Governance {
         e.storage().instance().set(&DataKey::Config, &config);
     }
 
+    /// Add a new governance member. Admin only.
     pub fn add_member(e: Env, admin: Address, new_member: Address) {
         admin.require_auth();
         let stored: Address = read_admin(&e);
@@ -365,6 +377,7 @@ impl Governance {
             .publish((EVENT_MEMBER_ADDED,), (new_member,));
     }
 
+    /// Remove a governance member. Cannot remove the last member. Admin only.
     pub fn remove_member(e: Env, admin: Address, member: Address) {
         admin.require_auth();
         let stored: Address = read_admin(&e);
@@ -390,10 +403,12 @@ impl Governance {
             .publish((EVENT_MEMBER_REMOVED,), (member,));
     }
 
+    /// Check if an address is a governance member.
     pub fn is_member_fn(e: Env, addr: Address) -> bool {
         is_member(&e, &addr)
     }
 
+    /// Get the total number of governance members.
     pub fn member_count_fn(e: Env) -> u32 {
         member_count(&e)
     }

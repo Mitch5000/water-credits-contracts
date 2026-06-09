@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String, Vec};
 
 #[cfg(test)]
@@ -38,7 +39,9 @@ fn read_admin(e: &Env) -> Address {
 pub struct ProjectRegistry;
 
 #[contractimpl]
+#[allow(clippy::too_many_arguments)]
 impl ProjectRegistry {
+    /// Initialize the project registry with an admin. Callable once.
     pub fn initialize(e: Env, admin: Address) {
         if has_admin(&e) {
             panic!("already initialized");
@@ -50,6 +53,7 @@ impl ProjectRegistry {
             .set(&DataKey::ProjectIds, &Vec::<BytesN<32>>::new(&e));
     }
 
+    /// Register a new project. Admin only. Returns the unique project ID.
     pub fn register(
         e: Env,
         caller: Address,
@@ -80,12 +84,8 @@ impl ProjectRegistry {
         let ts_bytes = timestamp.to_be_bytes();
         let project_id = BytesN::from_array(&e, &{
             let mut arr = [0u8; 32];
-            for i in 0..8 {
-                arr[i] = count_bytes[i];
-            }
-            for i in 0..8 {
-                arr[8 + i] = ts_bytes[i];
-            }
+            arr[..8].copy_from_slice(&count_bytes);
+            arr[8..16].copy_from_slice(&ts_bytes);
             arr
         });
 
@@ -121,10 +121,12 @@ impl ProjectRegistry {
         project_id
     }
 
+    /// Get a project entry by its ID. Returns None if not found.
     pub fn get(e: Env, project_id: BytesN<32>) -> Option<ProjectEntry> {
         e.storage().instance().get(&DataKey::Project(project_id))
     }
 
+    /// Update a project's status. Valid statuses: registered, active, completed, suspended. Admin only.
     pub fn update_status(e: Env, caller: Address, project_id: BytesN<32>, status: String) {
         caller.require_auth();
         let stored: Address = read_admin(&e);
@@ -152,10 +154,12 @@ impl ProjectRegistry {
             .set(&DataKey::Project(project_id), &project);
     }
 
+    /// Get the total number of registered projects.
     pub fn count(e: Env) -> u64 {
         e.storage().instance().get(&DataKey::ProjectCount).unwrap()
     }
 
+    /// List all registered projects. Returns an empty vec if none exist.
     pub fn list_all(e: Env) -> Vec<ProjectEntry> {
         let ids: Vec<BytesN<32>> = e
             .storage()

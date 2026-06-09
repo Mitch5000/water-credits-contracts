@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, String,
     Symbol, Val, Vec,
@@ -46,7 +47,9 @@ fn read_admin(e: &Env) -> Address {
 pub struct CreditFactory;
 
 #[contractimpl]
+#[allow(clippy::too_many_arguments)]
 impl CreditFactory {
+    /// Initialize the factory with an admin address. Callable once.
     pub fn initialize(e: Env, admin: Address) {
         if has_admin(&e) {
             panic!("already initialized");
@@ -55,10 +58,12 @@ impl CreditFactory {
         e.storage().instance().set(&DataKey::ProjectCount, &0u64);
     }
 
+    /// Return the current admin address.
     pub fn admin(e: Env) -> Address {
         read_admin(&e)
     }
 
+    /// Register a new water restoration project. Deploys a new credit_token contract and returns a SHA-256 project ID.
     pub fn register_project(
         e: Env,
         admin: Address,
@@ -79,10 +84,10 @@ impl CreditFactory {
         if name.len() == 0 {
             panic!("name must not be empty");
         }
-        if latitude < -90000000 || latitude > 90000000 {
+        if !(-90000000..=90000000).contains(&latitude) {
             panic!("invalid latitude");
         }
-        if longitude < -180000000 || longitude > 180000000 {
+        if !(-180000000..=180000000).contains(&longitude) {
             panic!("invalid longitude");
         }
         if area_hectares == 0 {
@@ -156,10 +161,12 @@ impl CreditFactory {
         project_id
     }
 
+    /// Get project info by its unique ID. Returns None if not found.
     pub fn get_project(e: Env, project_id: BytesN<32>) -> Option<ProjectInfo> {
         e.storage().instance().get(&DataKey::Project(project_id))
     }
 
+    /// Update a project's status. Valid statuses: registered, active, completed, suspended.
     pub fn update_project_status(e: Env, admin: Address, project_id: BytesN<32>, status: String) {
         admin.require_auth();
         let stored: Address = read_admin(&e);
@@ -187,6 +194,7 @@ impl CreditFactory {
             .set(&DataKey::Project(project_id), &project);
     }
 
+    /// Return the total number of registered projects.
     pub fn project_count(e: Env) -> u64 {
         e.storage()
             .instance()
