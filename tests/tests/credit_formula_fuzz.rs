@@ -175,7 +175,10 @@ fn assert_invariants(case: &FuzzCase, result: &verification_oracle::Finalization
     } else {
         // When gross negative due to misconfiguration, total floors at 0, so total >= gross
         // Expected behavior: total ==0 and gross negative.
-        assert_eq!(result.total, 0, "When gross negative, total should floor at 0");
+        assert_eq!(
+            result.total, 0,
+            "When gross negative, total should floor at 0"
+        );
     }
 
     // 5. penalty bounded [0,8000]
@@ -658,7 +661,10 @@ fn test_fuzz_penalty_never_increases_credits_for_nonnegative_gross() {
             + result.p_removed * case.config.credit_per_kg_p
             + result.volumetric_credit;
 
-        assert!(gross >= 0, "gross should be >=0 for non-negative credit rates");
+        assert!(
+            gross >= 0,
+            "gross should be >=0 for non-negative credit rates"
+        );
         assert!(
             result.total <= gross,
             "penalty should never increase credits: total {} <= gross {} for {:?}",
