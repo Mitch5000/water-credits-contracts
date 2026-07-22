@@ -491,8 +491,6 @@ impl CreditToken {
         let exp_key = DataKey::AllowanceExpiration(from.clone(), spender.clone());
         let expiration: u32 = e.storage().persistent().get(&exp_key).unwrap_or(0);
         if expiration > 0 && e.ledger().sequence() >= expiration {
-            // Allowance has expired — reset and reject
-            save_allowance(&e, &from, &spender, 0);
             panic!("allowance expired");
         }
 
@@ -917,13 +915,8 @@ mod tests {
         info.sequence_number = 10;
         e.ledger().set(info);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.transfer_from(&spender, &owner, &recipient, &100);
-        }));
+        let result = client.try_transfer_from(&spender, &owner, &recipient, &100);
         assert!(result.is_err());
-
-        // Allowance should be reset to 0
-        assert_eq!(client.allowance(&owner, &spender), 0);
     }
 
     #[test]
@@ -1024,9 +1017,7 @@ mod tests {
 
         let purpose = String::from_str(&e, "voluntary");
         let uri = String::from_str(&e, "ipfs://QmTest");
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.retire(&user, &100, &purpose, &uri);
-        }));
+        let result = client.try_retire(&user, &100, &purpose, &uri);
         assert!(
             result.is_err(),
             "retire must panic when registry is required but missing"
@@ -1079,9 +1070,7 @@ mod tests {
         assert_eq!(client.total_supply(), 1000);
 
         // Minting beyond cap should panic
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.mint_to(&admin, &user, &1);
-        }));
+        let result = client.try_mint_to(&admin, &user, &1);
         assert!(result.is_err());
     }
 
@@ -1166,9 +1155,7 @@ mod tests {
         let recipients = Vec::from_array(&e, [user2.clone(), user3.clone()]);
         let amounts: Vec<i128> = Vec::from_array(&e, [60i128, 60i128]);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.batch_transfer(&user1, &recipients, &amounts);
-        }));
+        let result = client.try_batch_transfer(&user1, &recipients, &amounts);
         assert!(result.is_err());
     }
 
@@ -1180,9 +1167,7 @@ mod tests {
         client.pause(&admin);
         assert!(client.paused());
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.mint_to(&admin, &user, &100);
-        }));
+        let result = client.try_mint_to(&admin, &user, &100);
         assert!(result.is_err());
     }
 
@@ -1194,9 +1179,7 @@ mod tests {
         client.mint_to(&admin, &user1, &1000);
         client.pause(&admin);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.transfer(&user1, &user2, &100);
-        }));
+        let result = client.try_transfer(&user1, &user2, &100);
         assert!(result.is_err());
     }
 

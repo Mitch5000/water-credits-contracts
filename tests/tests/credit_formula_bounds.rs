@@ -114,7 +114,8 @@ fn default_config(e: &Env) -> verification_oracle::OracleConfig {
         min_stake: 0,
         unstake_cooldown_secs: 86400,
         commit_phase_secs: 300,
-        reveal_phase_secs: 300,
+        min_reveal_ledgers: 0,
+        max_reveal_ledgers: 60,
     }
 }
 
@@ -210,9 +211,9 @@ fn test_negative_gross_from_misconfigured_credit_rate_floors_at_zero() {
 
 /// The maximum penalty achievable under the fixed formula weights (2000 + 2000
 /// + 2000 + 1000 = 7000 bps; the `penalty > 8000` cap exists as a ceiling for
-/// future weight changes but is unreachable today — see doc/MATH.md §5.5)
-/// applied to a large nonzero gross credit must still yield the exact scaled,
-/// non-negative total: `gross * (10000 - 7000) / 10000`.
+///   future weight changes but is unreachable today — see doc/MATH.md §5.5)
+///   applied to a large nonzero gross credit must still yield the exact scaled,
+///   non-negative total: `gross * (10000 - 7000) / 10000`.
 #[test]
 fn test_max_penalty_with_nonzero_gross_credit() {
     let e = Env::default();

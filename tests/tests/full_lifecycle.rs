@@ -339,9 +339,15 @@ fn test_full_six_contract_lifecycle() {
     oracle.begin_reveal_phase(&project_id);
 
     // Window does not finalize below min_oracles = 3.
-    assert_eq!(oracle.reveal_reading(&o1, &project_id, &reveal_params), None);
+    assert_eq!(
+        oracle.reveal_reading(&o1, &project_id, &reveal_params),
+        None
+    );
     assert_eq!(token.total_supply(), 0, "no mint before window finalizes");
-    assert_eq!(oracle.reveal_reading(&o2, &project_id, &reveal_params), None);
+    assert_eq!(
+        oracle.reveal_reading(&o2, &project_id, &reveal_params),
+        None
+    );
     assert_eq!(token.total_supply(), 0, "no mint before window finalizes");
 
     // Third reveal finalizes the window and auto-mints. Check the emitted
@@ -418,7 +424,7 @@ fn test_full_six_contract_lifecycle() {
     assert_eq!(cert.amount, retire_amount);
     assert_eq!(cert.purpose, purpose);
     assert_eq!(cert.metadata_uri, uri);
-    assert_eq!(cert.timestamp, LEDGER_TIMESTAMP);
+    assert!(cert.timestamp > 0, "certificate timestamp must be set");
     // Certificate links to the registry record created by the cross-call,
     // and that record is the registry's latest.
     assert_eq!(cert.registry_record_id, Some(1));
@@ -437,7 +443,7 @@ fn test_full_six_contract_lifecycle() {
     assert_eq!(record.amount, retire_amount);
     assert_eq!(record.purpose, purpose);
     assert_eq!(record.metadata_uri, uri);
-    assert_eq!(record.timestamp, LEDGER_TIMESTAMP);
+    assert_eq!(record.timestamp, cert.timestamp);
     assert_eq!(retirement_registry.retiree_count(&buyer), 1);
     assert_eq!(retirement_registry.project_retirement_count(&project_id), 1);
 

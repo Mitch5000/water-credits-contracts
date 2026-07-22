@@ -38,6 +38,7 @@ fn setup_10_oracles(
             min_oracles: 10,
             max_oracles: 10,
             quality_threshold_ph: 600,
+            quality_threshold_ph_max: 700,
             quality_threshold_turbidity: 50,
             quality_threshold_do: 50,
             quality_threshold_temp: 300,
@@ -48,7 +49,8 @@ fn setup_10_oracles(
             min_stake: 0,
             unstake_cooldown_secs: 86400,
             commit_phase_secs: 300,
-            reveal_phase_secs: 300,
+            min_reveal_ledgers: 0,
+            max_reveal_ledgers: 60,
         },
     );
 
@@ -149,6 +151,7 @@ fn test_median_gas_scales_linearly_from_three_to_ten() {
             min_oracles: 3,
             max_oracles: 10,
             quality_threshold_ph: 600,
+            quality_threshold_ph_max: 700,
             quality_threshold_turbidity: 50,
             quality_threshold_do: 50,
             quality_threshold_temp: 300,
@@ -159,7 +162,8 @@ fn test_median_gas_scales_linearly_from_three_to_ten() {
             min_stake: 0,
             unstake_cooldown_secs: 86400,
             commit_phase_secs: 300,
-            reveal_phase_secs: 300,
+            min_reveal_ledgers: 0,
+            max_reveal_ledgers: 60,
         },
     );
     let mut oracles3 = Vec::new(&e3);

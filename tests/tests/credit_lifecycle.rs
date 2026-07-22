@@ -1,6 +1,6 @@
 use credit_token::{CreditToken, CreditTokenClient};
 use retirement_registry::{RetirementRegistry, RetirementRegistryClient};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, BytesN, Env, String};
 use verification_oracle::{
     sha256_commitment, OracleConfig, RevealParams, VerificationOracle, VerificationOracleClient,
 };
@@ -42,8 +42,10 @@ fn deploy_oracle(e: &Env, admin: &Address) -> (Address, VerificationOracleClient
 /// rely on.
 fn advance_ledgers(e: &Env, secs: u64) {
     let bump = (secs / 5) as u32 + 1;
-    e.ledger().set_timestamp(e.ledger().timestamp() + secs);
-    e.ledger().set_sequence_number(e.ledger().sequence() + bump);
+    let mut info = e.ledger().get();
+    info.timestamp += secs;
+    info.sequence_number += bump;
+    e.ledger().set(info);
 }
 
 /// Run a full commit-reveal round for `oracles`, all submitting the same

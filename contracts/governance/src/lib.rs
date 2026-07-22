@@ -1112,18 +1112,16 @@ mod tests {
         assert_eq!(client.get_config().fee_bps, 200);
 
         // Old admin should be rejected
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let config2 = GovernanceConfig {
-                fee_bps: 300,
-                voting_period: 604800,
-                timelock_duration: 86400,
-                approval_threshold_bps: 6000,
-                quorum_bps: 5000,
-                min_proposal_deposit: 1000,
-                max_active_proposals: 10,
-            };
-            client.update_config(&admin, &config2);
-        }));
+        let config2 = GovernanceConfig {
+            fee_bps: 300,
+            voting_period: 604800,
+            timelock_duration: 86400,
+            approval_threshold_bps: 6000,
+            quorum_bps: 5000,
+            min_proposal_deposit: 1000,
+            max_active_proposals: 10,
+        };
+        let result = client.try_update_config(&admin, &config2);
         assert!(result.is_err());
     }
 
@@ -1268,25 +1266,22 @@ mod tests {
         let gov_client = GovernanceClient::new(&e, &gov_id);
         gov_client.initialize(&admin, &Vec::from_array(&e, [member.clone()]));
 
-        let sym1 = soroban_sdk::Symbol::new(&e, "hello");
-        let sym2 = soroban_sdk::Symbol::new(&e, "world");
-
         let action1 = GovernanceAction {
             target: mock_id.clone(),
-            function: soroban_sdk::Symbol::new(&e, "echo_arg"),
-            args: Vec::from_array(&e, [soroban_sdk::IntoVal::into_val(&sym1.clone(), &e)]),
+            function: soroban_sdk::Symbol::new(&e, "set_value"),
+            args: Vec::from_array(&e, [soroban_sdk::IntoVal::into_val(&42i128, &e)]),
         };
         let action2 = GovernanceAction {
             target: mock_id.clone(),
-            function: soroban_sdk::Symbol::new(&e, "echo_arg"),
-            args: Vec::from_array(&e, [soroban_sdk::IntoVal::into_val(&sym2.clone(), &e)]),
+            function: soroban_sdk::Symbol::new(&e, "set_value"),
+            args: Vec::from_array(&e, [soroban_sdk::IntoVal::into_val(&123i128, &e)]),
         };
         let actions = Vec::from_array(&e, [action1, action2]);
 
         let proposal_id = gov_client.propose(
             &member,
-            &String::from_str(&e, "Echo Args"),
-            &String::from_str(&e, "Calls echo_arg twice"),
+            &String::from_str(&e, "Set Values"),
+            &String::from_str(&e, "Sets the mock value twice"),
             &actions,
         );
 
@@ -1300,14 +1295,7 @@ mod tests {
         gov_client.execute(&member, &proposal_id);
 
         // Last call wins — the mock stores the most recent value.
-        assert_eq!(mock_client.get_value(), 0); // i128 default
-                                                // But the echo_arg returns the symbol; verify via the stored key.
-        let stored: Symbol = e
-            .storage()
-            .instance()
-            .get(&mock_target::DataKey::Value)
-            .unwrap();
-        assert_eq!(stored, sym2);
+        assert_eq!(mock_client.get_value(), 123);
     }
 
     #[test]
@@ -1345,9 +1333,7 @@ mod tests {
         info.timestamp = proposal.timelock_ends_at + 1;
         e.ledger().set(info);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            gov_client.execute(&member, &proposal_id);
-        }));
+        let result = gov_client.try_execute(&member, &proposal_id);
         assert!(result.is_err(), "execute must revert when an action fails");
 
         let proposal = gov_client.get_proposal(&proposal_id).unwrap();

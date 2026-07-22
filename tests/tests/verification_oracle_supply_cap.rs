@@ -7,7 +7,9 @@
 //! `credit_token` contract end-to-end (not a mock) to prove the cap is honored.
 
 use credit_token::{CreditToken, CreditTokenClient};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Ledger as _, Address, BytesN, Env, String, Vec,
+};
 use verification_oracle::{
     sha256_commitment, RevealParams, VerificationOracle, VerificationOracleClient,
 };
@@ -89,8 +91,10 @@ fn setup() -> Fixture {
 /// rely on.
 fn advance_ledgers(e: &Env, secs: u64) {
     let bump = (secs / 5) as u32 + 1;
-    e.ledger().set_timestamp(e.ledger().timestamp() + secs);
-    e.ledger().set_sequence_number(e.ledger().sequence() + bump);
+    let mut info = e.ledger().get();
+    info.timestamp += secs;
+    info.sequence_number += bump;
+    e.ledger().set(info);
 }
 
 /// Run a full commit-reveal round for all 3 fixture oracles against `READING`.

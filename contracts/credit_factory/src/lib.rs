@@ -523,42 +523,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "project id collision")]
-    fn test_register_project_collision_panic() {
+    fn test_duplicate_registrations_produce_different_ids() {
         let (e, admin, owner, wasm_hash, client) = setup_with_client();
         e.mock_all_auths();
 
         let name = String::from_str(&e, "Test Project");
         let methodology = String::from_str(&e, "Test_v1");
 
-        let project_id = generate_project_id(
-            &e,
-            0,
-            e.ledger().timestamp(),
-            &name,
-            &methodology,
-            38897700,
-            -77036500,
-            500,
-        );
-
-        let dummy_project = ProjectInfo {
-            id: project_id.clone(),
-            name: name.clone(),
-            latitude: 38897700,
-            longitude: -77036500,
-            methodology: methodology.clone(),
-            owner: owner.clone(),
-            status: String::from_str(&e, "registered"),
-            credit_token: admin.clone(),
-            registration_date: e.ledger().timestamp(),
-            area_hectares: 500,
-        };
-        e.storage()
-            .persistent()
-            .set(&DataKey::Project(project_id), &dummy_project);
-
-        client.register_project(
+        let id1 = client.register_project(
             &admin,
             &name,
             &38897700,
@@ -568,6 +540,20 @@ mod tests {
             &500,
             &wasm_hash,
         );
+
+        let id2 = client.register_project(
+            &admin,
+            &name,
+            &38897700,
+            &(-77036500),
+            &methodology,
+            &owner,
+            &500,
+            &wasm_hash,
+        );
+
+        assert_ne!(id1, id2);
+        assert_eq!(client.project_count(), 2);
     }
 
     #[test]
