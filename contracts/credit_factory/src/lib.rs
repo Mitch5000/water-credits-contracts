@@ -1,6 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use shared::generate_project_id;
+use shared::{generate_project_id, is_valid_status, is_valid_status_transition};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, BytesN, Env, String, Symbol,
     Val, Vec,
@@ -185,11 +185,21 @@ impl CreditFactory {
     }
 
     /// Update a project's status. Valid statuses: registered, active, completed, suspended.
+    ///
+    /// Enforces a strict state machine:
+    ///   registered → active, active → completed, active → suspended,
+    ///   completed → active, suspended → registered.
+    ///
+    /// Same-status updates are no-ops (returns without writing).
     pub fn update_project_status(e: Env, admin: Address, project_id: BytesN<32>, status: String) {
         admin.require_auth();
         let stored: Address = read_admin(&e);
         if admin != stored {
             panic!("unauthorized");
+        }
+
+        if !is_valid_status(&e, &status) {
+            panic!("invalid status");
         }
 
         let key = DataKey::Project(project_id.clone());
@@ -199,12 +209,13 @@ impl CreditFactory {
             .get(&key)
             .unwrap_or_else(|| panic!("project not found"));
 
-        let valid = status == String::from_str(&e, "registered")
-            || status == String::from_str(&e, "active")
-            || status == String::from_str(&e, "completed")
-            || status == String::from_str(&e, "suspended");
-        if !valid {
-            panic!("invalid status");
+        // Same-status no-op: return early without touching storage.
+        if project.status == status {
+            return;
+        }
+
+        if !is_valid_status_transition(&e, &project.status, &status) {
+            panic!("invalid status transition");
         }
 
         project.status = status;
@@ -472,6 +483,229 @@ mod tests {
             let project = client.get_project(&project_id).unwrap();
             assert_eq!(project.status, status);
         }
+    }
+
+    // ── Valid transition tests ──
+
+    #[test]
+    fn test_transition_registered_to_active() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "T1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    #[test]
+    fn test_transition_active_to_completed() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "T2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "completed"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "completed")
+        );
+    }
+
+    #[test]
+    fn test_transition_active_to_suspended() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "T3"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "suspended"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "suspended")
+        );
+    }
+
+    #[test]
+    fn test_transition_completed_to_active() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "T4"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "completed"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    #[test]
+    fn test_transition_suspended_to_registered() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "T5"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "suspended"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "registered"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "registered")
+        );
+    }
+
+    // ── Same-status no-op tests ──
+
+    #[test]
+    fn test_same_status_noop_registered() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "Noop1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        // Should not panic — no-op
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "registered"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "registered")
+        );
+    }
+
+    #[test]
+    fn test_same_status_noop_active() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "Noop2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        // Should not panic — no-op
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get_project(&pid).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    // ── Forbidden transition tests ──
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_completed_to_registered() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "F1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "completed"));
+        // This should panic
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "registered"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_registered_to_completed() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "F2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        // This should panic — registered → completed is not allowed
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "completed"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_suspended_to_completed() {
+        let (e, admin, owner, wasm_hash, client) = setup_with_client();
+        e.mock_all_auths();
+        let pid = client.register_project(
+            &admin,
+            &String::from_str(&e, "F3"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+            &wasm_hash,
+        );
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "active"));
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "suspended"));
+        // This should panic
+        client.update_project_status(&admin, &pid, &String::from_str(&e, "completed"));
     }
 
     #[test]
