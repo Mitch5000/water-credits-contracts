@@ -1,6 +1,73 @@
 #![no_std]
 use soroban_sdk::{Bytes, BytesN, Env, String};
 
+// ── Project Status Transition State Machine ──
+//
+// Valid transitions:
+//   registered → active       (project begins operations)
+//   active     → completed    (project fulfills its credits)
+//   active     → suspended    (project is halted)
+//   completed  → active       (reactivation, if needed)
+//   suspended  → registered   (re-registration after remediation)
+//
+// Same-status updates are treated as no-ops (allowed but no state change).
+//
+// All other transitions (e.g. completed→registered, registered→completed,
+// suspended→completed, registered→suspended, etc.) are forbidden.
+
+/// Returns `true` when `new_status` is a valid successor of `current_status`.
+/// Same-status transitions always return `true` (callers treat them as no-ops).
+///
+/// Allowed transitions:
+///   registered → active
+///   active     → completed
+///   active     → suspended
+///   completed  → active
+///   suspended  → registered
+pub fn is_valid_status_transition(e: &Env, current_status: &String, new_status: &String) -> bool {
+    // Same-status is always allowed (caller handles no-op).
+    if current_status == new_status {
+        return true;
+    }
+
+    let registered = String::from_str(e, "registered");
+    let active = String::from_str(e, "active");
+    let completed = String::from_str(e, "completed");
+    let suspended = String::from_str(e, "suspended");
+
+    // registered → active
+    if *current_status == registered && *new_status == active {
+        return true;
+    }
+    // active → completed
+    if *current_status == active && *new_status == completed {
+        return true;
+    }
+    // active → suspended
+    if *current_status == active && *new_status == suspended {
+        return true;
+    }
+    // completed → active
+    if *current_status == completed && *new_status == active {
+        return true;
+    }
+    // suspended → registered
+    if *current_status == suspended && *new_status == registered {
+        return true;
+    }
+
+    false
+}
+
+/// Returns `true` when `status` is one of the four recognised values:
+/// registered, active, completed, suspended.
+pub fn is_valid_status(e: &Env, status: &String) -> bool {
+    *status == String::from_str(e, "registered")
+        || *status == String::from_str(e, "active")
+        || *status == String::from_str(e, "completed")
+        || *status == String::from_str(e, "suspended")
+}
+
 /// Canonical project ID generation across all contracts.
 ///
 /// Produces a deterministic 32-byte ID from registration inputs.
@@ -64,6 +131,166 @@ pub fn generate_project_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Transition state-machine tests ──
+
+    #[test]
+    fn test_valid_transition_registered_to_active() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "registered");
+        let new = String::from_str(&e, "active");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_valid_transition_active_to_completed() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "active");
+        let new = String::from_str(&e, "completed");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_valid_transition_active_to_suspended() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "active");
+        let new = String::from_str(&e, "suspended");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_valid_transition_completed_to_active() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "completed");
+        let new = String::from_str(&e, "active");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_valid_transition_suspended_to_registered() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "suspended");
+        let new = String::from_str(&e, "registered");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    // Same-status no-op transitions
+
+    #[test]
+    fn test_same_status_registered() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "registered");
+        let new = String::from_str(&e, "registered");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_same_status_active() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "active");
+        let new = String::from_str(&e, "active");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_same_status_completed() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "completed");
+        let new = String::from_str(&e, "completed");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_same_status_suspended() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "suspended");
+        let new = String::from_str(&e, "suspended");
+        assert!(is_valid_status_transition(&e, &cur, &new));
+    }
+
+    // Forbidden transitions
+
+    #[test]
+    fn test_forbidden_completed_to_registered() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "completed");
+        let new = String::from_str(&e, "registered");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_forbidden_registered_to_completed() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "registered");
+        let new = String::from_str(&e, "completed");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_forbidden_suspended_to_completed() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "suspended");
+        let new = String::from_str(&e, "completed");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_forbidden_registered_to_suspended() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "registered");
+        let new = String::from_str(&e, "suspended");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_forbidden_suspended_to_active() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "suspended");
+        let new = String::from_str(&e, "active");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    #[test]
+    fn test_forbidden_completed_to_suspended() {
+        let e = Env::default();
+        let cur = String::from_str(&e, "completed");
+        let new = String::from_str(&e, "suspended");
+        assert!(!is_valid_status_transition(&e, &cur, &new));
+    }
+
+    // is_valid_status tests
+
+    #[test]
+    fn test_is_valid_status_registered() {
+        let e = Env::default();
+        assert!(is_valid_status(&e, &String::from_str(&e, "registered")));
+    }
+
+    #[test]
+    fn test_is_valid_status_active() {
+        let e = Env::default();
+        assert!(is_valid_status(&e, &String::from_str(&e, "active")));
+    }
+
+    #[test]
+    fn test_is_valid_status_completed() {
+        let e = Env::default();
+        assert!(is_valid_status(&e, &String::from_str(&e, "completed")));
+    }
+
+    #[test]
+    fn test_is_valid_status_suspended() {
+        let e = Env::default();
+        assert!(is_valid_status(&e, &String::from_str(&e, "suspended")));
+    }
+
+    #[test]
+    fn test_is_valid_status_invalid() {
+        let e = Env::default();
+        assert!(!is_valid_status(&e, &String::from_str(&e, "bogus")));
+    }
+
+    // ── Existing generate_project_id tests ──
 
     #[test]
     fn test_deterministic() {

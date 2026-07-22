@@ -1,6 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
-use shared::generate_project_id;
+use shared::{generate_project_id, is_valid_status, is_valid_status_transition};
 use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String, Vec};
 
 #[cfg(test)]
@@ -153,11 +153,21 @@ impl ProjectRegistry {
     }
 
     /// Update a project's status. Valid statuses: registered, active, completed, suspended. Admin only.
+    ///
+    /// Enforces a strict state machine:
+    ///   registered → active, active → completed, active → suspended,
+    ///   completed → active, suspended → registered.
+    ///
+    /// Same-status updates are no-ops (returns without writing).
     pub fn update_status(e: Env, caller: Address, project_id: BytesN<32>, status: String) {
         caller.require_auth();
         let stored: Address = read_admin(&e);
         if caller != stored {
             panic!("unauthorized");
+        }
+
+        if !is_valid_status(&e, &status) {
+            panic!("invalid status");
         }
 
         let key = DataKey::Project(project_id.clone());
@@ -167,12 +177,13 @@ impl ProjectRegistry {
             .get(&key)
             .unwrap_or_else(|| panic!("project not found"));
 
-        let valid = status == String::from_str(&e, "registered")
-            || status == String::from_str(&e, "active")
-            || status == String::from_str(&e, "completed")
-            || status == String::from_str(&e, "suspended");
-        if !valid {
-            panic!("invalid status");
+        // Same-status no-op: return early without touching storage.
+        if project.status == status {
+            return;
+        }
+
+        if !is_valid_status_transition(&e, &project.status, &status) {
+            panic!("invalid status transition");
         }
 
         project.status = status;
@@ -442,5 +453,228 @@ mod tests {
         client.update_owner(&owner, &id, &new_owner);
         let project = client.get(&id).unwrap();
         assert_eq!(project.owner, new_owner);
+    }
+
+    // ── Valid transition tests ──
+
+    #[test]
+    fn test_transition_registered_to_active() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "T1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    #[test]
+    fn test_transition_active_to_completed() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "T2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "completed"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "completed")
+        );
+    }
+
+    #[test]
+    fn test_transition_active_to_suspended() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "T3"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "suspended"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "suspended")
+        );
+    }
+
+    #[test]
+    fn test_transition_completed_to_active() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "T4"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "completed"));
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    #[test]
+    fn test_transition_suspended_to_registered() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "T5"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "suspended"));
+        client.update_status(&admin, &id, &String::from_str(&e, "registered"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "registered")
+        );
+    }
+
+    // ── Same-status no-op tests ──
+
+    #[test]
+    fn test_same_status_noop_registered() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "Noop1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        // Should not panic — no-op
+        client.update_status(&admin, &id, &String::from_str(&e, "registered"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "registered")
+        );
+    }
+
+    #[test]
+    fn test_same_status_noop_active() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "Noop2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        // Should not panic — no-op
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        assert_eq!(
+            client.get(&id).unwrap().status,
+            String::from_str(&e, "active")
+        );
+    }
+
+    // ── Forbidden transition tests ──
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_completed_to_registered() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "F1"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "completed"));
+        // This should panic
+        client.update_status(&admin, &id, &String::from_str(&e, "registered"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_registered_to_completed() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "F2"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        // This should panic — registered → completed is not allowed
+        client.update_status(&admin, &id, &String::from_str(&e, "completed"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid status transition")]
+    fn test_forbidden_suspended_to_completed() {
+        let (e, admin, client) = setup();
+        e.mock_all_auths();
+        let owner = Address::generate(&e);
+        let id = client.register(
+            &admin,
+            &String::from_str(&e, "F3"),
+            &38897700,
+            &(-77036500),
+            &String::from_str(&e, "v1"),
+            &owner,
+            &100,
+        );
+        client.update_status(&admin, &id, &String::from_str(&e, "active"));
+        client.update_status(&admin, &id, &String::from_str(&e, "suspended"));
+        // This should panic
+        client.update_status(&admin, &id, &String::from_str(&e, "completed"));
     }
 }
